@@ -117,10 +117,39 @@ O caminho do KMZ recusa cadastrar fazenda a mais de 150 km das outras sem
 confirmação explícita — é a checagem que pega latitude trocada com longitude, erro
 que não produz mensagem nenhuma, só um vigia guardando a terra de um estranho.
 
+## Simulado — testar a corrente inteira com fogo real
+
+Saber que o robô está rodando **não é** saber que o alerta chega em quem precisa
+agir. O simulado prova a corrente toda — baixar, detectar, agrupar, montar, enviar,
+chegar — usando um incêndio de verdade queimando agora em algum lugar do Brasil.
+
+```bash
+python -X utf8 tools/simulado.py                  # acha fogo ativo e manda o alerta
+python -X utf8 tools/simulado.py --sem-email      # mostra o que sairia, não envia
+python -X utf8 tools/simulado.py --perto-de -16.75,-47.93 --raio-km 100
+```
+
+O e-mail chega marcado **🧪 SIMULADO** no assunto e na primeira linha, pra ninguém
+agir achando que é fogo na própria terra.
+
+**Ele não mexe em nada:** não altera config, não altera estado (ponteiro, silêncio
+de 60 min, contador do resumo) e não briga com o vigia rodando. Nada pra limpar
+depois — de propósito. A alternativa óbvia, cadastrar uma "fazenda de teste",
+funciona igual e acrescenta um risco que não compensa: esquecer de remover, e em
+agosto o alerta diário treina o dono a ignorar a caixa de entrada.
+
+Quando o `--perto-de` não acha nada, o script diz com todas as letras que isso é
+**ausência de fogo, não falha do robô**. Teste que pode falhar por dois motivos
+diferentes não prova nada.
+
+⚠️ O e-mail é a parte fácil. **Cronometre a outra:** do alerta chegar até alguém
+estar no local com equipamento. Se a resposta for "não sei", o sistema não está
+pronto, por melhor que o código esteja.
+
 ## Testes
 
 ```bash
-python -m unittest discover -s tests -v    # 101 testes
+python -m unittest discover -s tests -v    # 117 testes
 ```
 
 Funções puras testadas direto; o ciclo testado com dublês injetados para rede,

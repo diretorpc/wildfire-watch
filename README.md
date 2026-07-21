@@ -115,10 +115,40 @@ The KMZ path refuses to register a farm more than 150 km from the others without
 an explicit override — that is the check that catches swapped latitude/longitude,
 an error that produces no error message, just a watchdog guarding a stranger's land.
 
+## Fire drill — testing the whole chain against a real fire
+
+Knowing the watcher is running is **not** the same as knowing the alert reaches
+someone who can act. The drill proves the entire chain — download, detect, group,
+compose, send, arrive — using a wildfire that is actually burning somewhere in
+Brazil right now.
+
+```bash
+python -X utf8 tools/simulado.py                  # find an active fire, send the alert
+python -X utf8 tools/simulado.py --sem-email      # show what would be sent, send nothing
+python -X utf8 tools/simulado.py --perto-de -16.75,-47.93 --raio-km 100
+```
+
+The email arrives tagged **🧪 SIMULADO** in the subject and first line, so nobody
+acts on it thinking their own land is burning.
+
+**It touches nothing.** No config change, no state change (pointer, cooldown, daily
+counter), no lock contention with the running watcher. Nothing to clean up
+afterwards — deliberately so. The obvious alternative, registering a temporary
+"test farm", works just as well and adds a risk that isn't worth it: forget to
+remove it, and by August a daily alert has trained the owner to ignore the inbox.
+
+When `--perto-de` finds nothing, the script says plainly that this is **absence of
+fire, not failure of the watcher**. A test that can fail for two different reasons
+proves nothing.
+
+⚠️ The email is the easy half. **Time the other half:** from alert received to
+someone on site with equipment. If the answer is "not sure", the system isn't
+ready — however good the code is.
+
 ## Tests
 
 ```bash
-python -m unittest discover -s tests -v    # 101 tests
+python -m unittest discover -s tests -v    # 117 tests
 ```
 
 Pure functions are tested directly; the cycle is tested with injected fakes for
