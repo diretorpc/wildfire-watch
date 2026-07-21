@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vigia-Fogo — Painel</title>
+  <link rel="stylesheet" href="lib/leaflet/leaflet.css">
+  <link rel="stylesheet" href="painel.css">
+</head>
+<body>
+  <header id="topo">
+    <div class="marca"><b>🔥 VIGIA-FOGO</b> <small id="marca-sub">satellite fire watch</small></div>
+    <div class="status">
+      <span id="pulso" class="pulso"></span>
+      <span id="status-txt">carregando…</span>
+      <span id="relogio" class="relogio">--:--:--</span>
+    </div>
+  </header>
+
+  <div id="banner-robo" class="banner oculto"></div>
+  <div id="banner-offline" class="banner aviso oculto">
+    ⚠️ Sem internet: o fundo de satélite não carregou. As fazendas e os focos aparecem normal.
+  </div>
+
+  <div id="corpo">
+    <div id="mapa"></div>
+    <aside id="lateral">
+      <h2>Fazendas</h2>
+      <div id="lista"></div>
+      <div class="rodape-lateral">
+        <p><b>Última checagem:</b> <span id="ultima-checagem">—</span></p>
+        <p><b>Focos no Brasil agora:</b> <span id="focos-brasil">—</span></p>
+        <p class="nota">Detecção por satélite (INPE/GOES-19): pixel de ~2&nbsp;km,
+        dado com ~20&nbsp;min de atraso. "Foco de calor" é uma detecção — pode ser
+        queima controlada, não necessariamente incêndio.</p>
+      </div>
+    </aside>
+  </div>
+
+  <div id="legenda">
+    <span><i class="sw dentro"></i> dentro da divisa</span>
+    <span><i class="sw urgente"></i> ≤5 km (urgente)</span>
+    <span><i class="sw atencao"></i> 5–10 km (atenção)</span>
+    <button id="btn-fundo" type="button">Trocar fundo (Esri ⇄ NASA)</button>
+  </div>
+
+  <script src="lib/leaflet/leaflet.js"></script>
+  <script src="painel.js"></script>
+</body>
+</html>

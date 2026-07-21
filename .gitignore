@@ -1,0 +1,21 @@
+# Credenciais — NUNCA subir (o modelo .env.example sobe; o .env real, jamais)
+.env
+
+# Memória local de sessão do Claude (só faz sentido nesta máquina)
+.remember/
+
+# Estado de runtime do vigia (último CSV processado, cooldowns) — não sobe
+dados/estado-vigia.json
+# Estado que alimenta o painel (gerado a cada ciclo) — não sobe
+dados/painel-estado.json
+# Trava de instância única (runtime) — não sobe
+dados/vigia.lock
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Lixo temporário
+.tmp/
+_deprecated/

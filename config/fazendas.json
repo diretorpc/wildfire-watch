@@ -1,0 +1,80 @@
+{
+  "_comentario": "Example farms only. Register real ones with tools/cadastrar_fazenda.py",
+  "anel_padrao_km": 5,
+  "fazendas": [
+    {
+      "nome": "Example Farm North",
+      "car": "",
+      "car_sem_pontos": "",
+      "municipio": "Example County/GO",
+      "area_ha": 1416.99,
+      "centro": {
+        "lat": -16.385,
+        "lon": -49.23
+      },
+      "bbox_fazenda": {
+        "oeste": -49.25,
+        "sul": -16.4,
+        "leste": -49.21,
+        "norte": -16.37
+      },
+      "bbox_vigilancia_anel_5km": {
+        "oeste": -49.2968,
+        "sul": -16.4452,
+        "leste": -49.1632,
+        "norte": -16.3248
+      },
+      "bbox_vigilancia_anel_10km": {
+        "oeste": -49.3436,
+        "sul": -16.4904,
+        "leste": -49.1164,
+        "norte": -16.2796
+      },
+      "poligono_geojson": "dados/fazenda-example-farm-north.geojson",
+      "contato": {
+        "nome": "Farm manager",
+        "telefone": "+55 00 00000-0000"
+      },
+      "ponto_de_agua": "reservoir behind the barn",
+      "ativa": true
+    },
+    {
+      "nome": "Example Farm South",
+      "car": "",
+      "car_sem_pontos": "",
+      "municipio": "Example County/GO",
+      "area_ha": 590.57,
+      "centro": {
+        "lat": -16.34,
+        "lon": -49.1775
+      },
+      "bbox_fazenda": {
+        "oeste": -49.19,
+        "sul": -16.35,
+        "leste": -49.165,
+        "norte": -16.33
+      },
+      "bbox_vigilancia_anel_5km": {
+        "oeste": -49.2368,
+        "sul": -16.3952,
+        "leste": -49.1182,
+        "norte": -16.2848
+      },
+      "bbox_vigilancia_anel_10km": {
+        "oeste": -49.2836,
+        "sul": -16.4404,
+        "leste": -49.0714,
+        "norte": -16.2396
+      },
+      "poligono_geojson": "dados/fazenda-example-farm-south.geojson",
+      "contato": {
+        "nome": "Farm manager",
+        "telefone": "+55 00 00000-0000"
+      },
+      "ponto_de_agua": "reservoir behind the barn",
+      "ativa": true
+    }
+  ],
+  "anel_urgente_km": 5,
+  "anel_atencao_km": 10
+}

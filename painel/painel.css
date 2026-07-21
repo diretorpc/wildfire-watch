@@ -1,0 +1,78 @@
+/* Painel do vigia-fogo — sala de controle escura (mesmo espírito do protótipo). */
+:root {
+  --ground: #14150f; --panel: #1b1d15; --line: #33372a;
+  --ink: #eef0e6; --ink-dim: #a9ad98; --ink-faint: #6f7360;
+  --watch: #86c06c; --atencao: #f0a12e; --urgente: #ff4d22; --fire-deep: #b62204;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "SF Mono", Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--ground); color: var(--ink); font-family: var(--sans); display: flex; flex-direction: column; height: 100vh; }
+
+#topo { display: flex; align-items: center; gap: 14px; padding: 12px 18px; border-bottom: 1px solid var(--line); background: #20231a; }
+.marca b { letter-spacing: .1em; font-size: 20px; }
+.marca small { color: var(--ink-faint); font-family: var(--mono); font-size: 14.5px; }
+.status { margin-left: auto; display: flex; align-items: center; gap: 9px; font-family: var(--mono); font-size: 15px; color: var(--ink-dim); }
+.pulso { width: 9px; height: 9px; border-radius: 50%; background: var(--watch); }
+.pulso.morto { background: var(--urgente); }
+.relogio { color: var(--ink); font-variant-numeric: tabular-nums; }
+
+.banner { padding: 10px 16px; font-size: 14px; text-align: center; }
+.banner.robo-parado { background: var(--fire-deep); color: #ffe9e0; font-weight: 600; }
+.banner.aviso { background: #4a3a12; color: #ffe9b0; }
+.oculto { display: none; }
+
+#corpo { flex: 1; display: flex; min-height: 0; }
+#mapa { flex: 1; background: #0c0d07; }
+#lateral { width: 330px; background: #191b12; border-left: 1px solid var(--line); overflow-y: auto; padding: 12px; }
+@media (max-width: 780px) { #corpo { flex-direction: column; } #lateral { width: auto; border-left: none; border-top: 1px solid var(--line); } }
+#lateral h2 { font-size: 13px; letter-spacing: .16em; text-transform: uppercase; color: var(--ink-faint); margin: 2px 2px 10px; }
+
+.faz { display: grid; grid-template-columns: auto 1fr auto; gap: 9px; align-items: center; padding: 9px 10px; border-radius: 9px; background: #22251b; border: 1px solid #2a2d22; margin-bottom: 8px; cursor: pointer; }
+.faz:hover { border-color: #6b4e1e; }
+.faz .pin { width: 10px; height: 10px; border-radius: 50%; background: var(--watch); }
+.faz.atencao .pin { background: #ffd21a; }
+.faz.urgente .pin { background: #ff8c1a; }
+.faz.dentro .pin  { background: #ff3b1f; }
+.faz .nm { min-width: 0; }
+.faz .nm b { display: block; font-size: 15.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.faz .nm span { font-family: var(--mono); font-size: 12.5px; color: var(--ink-faint); }
+.faz .tag { font-family: var(--mono); font-size: 12px; font-weight: 700; padding: 4px 9px; border-radius: 20px; white-space: nowrap; color: var(--watch); background: #1c2a15; border: 1px solid #35512688; }
+.faz.atencao .tag { color: #241c00; background: #ffd21a; border-color: #ffd21a; }
+.faz.urgente .tag { color: #1f0e00; background: #ff8c1a; border-color: #ff8c1a; }
+.faz.dentro .tag  { color: #fff;    background: #ff3b1f; border-color: #ff3b1f; }
+
+.rodape-lateral { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 14px; color: var(--ink-dim); }
+.rodape-lateral p { margin: 5px 0; }
+.rodape-lateral .nota { color: var(--ink-faint); font-size: 13px; line-height: 1.5; margin-top: 8px; }
+
+#legenda { display: flex; flex-wrap: wrap; align-items: center; gap: 9px 18px; padding: 10px 18px; border-top: 1px solid var(--line); background: #14160f; font-family: var(--mono); font-size: 13.5px; color: var(--ink-dim); }
+#legenda .sw { display: inline-block; width: 13px; height: 13px; border-radius: 3px; vertical-align: -2px; margin-right: 5px; }
+.sw.dentro { background: #ff3b1f; } .sw.urgente { background: #ff8c1a; } .sw.atencao { background: #ffd21a; }
+#btn-fundo { margin-left: auto; font-family: var(--mono); font-size: 13.5px; color: var(--ink-dim); background: #22251b; border: 1px solid var(--line); border-radius: 7px; padding: 7px 12px; cursor: pointer; }
+#btn-fundo:hover { border-color: #6b4e1e; color: var(--ink); }
+
+/* Faz os desenhos do mapa (fazendas, anéis, focos) "saltarem" sobre o satélite:
+   um halo escuro em volta de cada traço, legível em qualquer imagem. */
+.leaflet-overlay-pane svg { filter: drop-shadow(0 0 2px rgba(0,0,0,.95)); }
+
+/* Nome da fazenda escrito direto no mapa (sem a caixinha padrão do Leaflet). */
+.leaflet-tooltip.rotulo-faz {
+  background: transparent; border: 0; box-shadow: none; padding: 0;
+  color: #fff; font-family: var(--sans); font-weight: 700; font-size: 12.5px;
+  letter-spacing: .02em; white-space: nowrap;
+  text-shadow: 0 0 3px #000, 0 0 4px #000, 0 1px 2px #000;
+}
+.leaflet-tooltip.rotulo-faz::before { display: none; }
+
+/* popup do Leaflet no tema escuro */
+.leaflet-popup-content-wrapper, .leaflet-popup-tip { background: #20231a; color: var(--ink); }
+.leaflet-popup-content { font-family: var(--sans); font-size: 13px; }
+.leaflet-popup-content a { color: var(--atencao); }
+.leaflet-container { background: #0c0d07; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .pulso { animation: bat 2s infinite; }
+  @keyframes bat { 0% { box-shadow: 0 0 0 0 #4f7a3d; } 70% { box-shadow: 0 0 0 7px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+}
