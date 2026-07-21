@@ -19,3 +19,6 @@ __pycache__/
 # Lixo temporário
 .tmp/
 _deprecated/
+
+# Sobras do navegador automatizado (capturas/logs de teste) — nunca sobem
+.playwright-mcp/

@@ -77,6 +77,7 @@ não é "enxergando"**:
 | Configuração faltando | **Cobrada, nunca omitida** | Alerta sem telefone imprime "sem telefone cadastrado — preencha". Buraco silencioso é pior que buraco visível. |
 | Dependências | **Zero** (só biblioteca padrão do Python) | Nada para instalar, nada para quebrar em atualização, nada para pagar. O Leaflet vem embutido, então o painel funciona offline. |
 | Alerta urgente | Carrega aviso de segurança | Um e-mail que diz "corra" pode mandar alguém sozinho, de moto, contra uma frente de fogo com vento. Quem manda correr deve as instruções de não morrer. |
+| Terra que não é sua | **Zona de observação** | Marque uma área com `apenas_observacao` e ela aparece no painel e no resumo diário, mas **nunca manda e-mail**. Alertar sobre terra alheia — onde não há trator para mandar nem cerca para defender — não gera ação, só gasta o único recurso insubstituível do sistema: a atenção do dono. |
 
 ## Como funciona
 

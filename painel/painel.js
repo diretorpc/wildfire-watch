@@ -7,7 +7,8 @@
 var LIMITE_PADRAO_MIN = 25;             // usado se o estado não trouxer o limite
 var INTERVALO_ATUALIZA_MS = 30000;      // relê o estado a cada 30 s
 // Cores da legenda (gravidade por proximidade):
-var COR = { dentro: "#ff3b1f", urgente: "#ff8c1a", atencao: "#ffd21a", verde: "#aef06f" };
+var COR = { dentro: "#ff3b1f", urgente: "#ff8c1a", atencao: "#ffd21a", verde: "#aef06f",
+            observacao: "#7fb3ff" };  // azul = so observacao, terra que nao e sua
 var COR_DIVISA = "#ff3b1f";     // dentro da divisa = VERMELHO
 var COR_ANEL_INT = "#ff8c1a";   // anel de 5 km = LARANJA
 var COR_ANEL_EXT = "#ffd21a";   // anel de 10 km = AMARELO
@@ -102,6 +103,23 @@ function desenharFazendas() {
   var todos = [];
   fazendasCfg.forEach(function (f) {
     var aneis = anelBboxes(f);
+    if (f.apenas_observacao) {
+      // Zona de observacao: linha azul discreta. Nao usa vermelho/laranja porque
+      // aqui nao ha o que fazer — e informacao de contexto, nao chamado de acao.
+      aneis.forEach(function (a) {
+        anelRedondo(a.bbox, { color: COR.observacao, weight: 2, opacity: 0.75, dashArray: "2 8",
+                              fill: true, fillColor: COR.observacao, fillOpacity: 0.04 }).addTo(mapa);
+      });
+      if (f.centro) {
+        L.marker([f.centro.lat, f.centro.lon], { opacity: 0, interactive: false })
+          .bindTooltip(f.nome, { permanent: true, direction: "center", className: "rotulo-faz rotulo-obs", opacity: 1 })
+          .addTo(mapa);
+      }
+      var ez = aneis.length ? aneis[aneis.length - 1].bbox : null;
+      if (ez) { todos.push([ez.sul, ez.oeste]); todos.push([ez.norte, ez.leste]); }
+      camadas[f.nome] = { poligono: null };
+      return;   // sem divisa vermelha: a zona nao tem "dentro da divisa"
+    }
     aneis.forEach(function (a, i) {
       var externo = (i === aneis.length - 1);
       if (externo) {  // 10 km = AMARELO, zona levemente tingida
@@ -144,11 +162,20 @@ function montarLista() {
     el.dataset.nome = f.nome;
     el.innerHTML =
       '<span class="pin"></span>' +
-      '<span class="nm"><b>' + esc(f.nome) + "</b><span>" + esc(f.area_ha || "?") + " ha</span></span>" +
-      '<span class="tag">VIGIANDO</span>';
+      '<span class="nm"><b>' + esc(f.nome) + "</b><span>" +
+        (f.apenas_observacao ? "fogo de terceiros" : esc(f.area_ha || "?") + " ha") + "</span></span>" +
+      '<span class="tag">' + (f.apenas_observacao ? "OBSERVANDO" : "VIGIANDO") + '</span>';
     el.addEventListener("mouseenter", function () {
       var c = camadas[f.nome];
-      if (c && c.poligono.getBounds().isValid()) { mapa.fitBounds(c.poligono.getBounds(), { maxZoom: 14, padding: [40, 40] }); }
+      if (c && c.poligono && c.poligono.getBounds().isValid()) {
+        mapa.fitBounds(c.poligono.getBounds(), { maxZoom: 14, padding: [40, 40] });
+      } else {   // zona de observacao nao tem divisa: enquadra pelo anel
+        var a = anelBboxes(f);
+        if (a.length) {
+          var b = a[a.length - 1].bbox;
+          mapa.fitBounds([[b.sul, b.oeste], [b.norte, b.leste]], { padding: [40, 40] });
+        }
+      }
     });
     lista.appendChild(el);
     camadas[f.nome].item = el;
@@ -159,7 +186,9 @@ function pinFoco(nomeFaz, contato, foco) {
   var c = COR[foco.gravidade] || COR.urgente;
   var lat = num(foco.lat), lon = num(foco.lon);
   var tel = (contato && contato.telefone) ? "<br>📞 " + esc(contato.nome) + " " + esc(contato.telefone) : "";
-  var onde = foco.gravidade === "dentro" ? "DENTRO da divisa" : ("~" + esc(foco.dist_km) + " km a " + esc(foco.rumo));
+  var onde = foco.gravidade === "observacao"
+    ? "fogo de terceiros — fora das suas terras"
+    : (foco.gravidade === "dentro" ? "DENTRO da divisa" : ("~" + esc(foco.dist_km) + " km a " + esc(foco.rumo)));
   var agrup = (foco.n_focos && foco.n_focos > 1) ? "<br>🛰️ " + esc(foco.n_focos) + " detecções agrupadas" : "";
   L.circleMarker([lat, lon], { radius: 16, color: c, weight: 0, fillColor: c, fillOpacity: 0.22 }).addTo(focosLayer);  // brilho
   L.circleMarker([lat, lon], { radius: 8, color: "#fff", weight: 2, fillColor: c, fillOpacity: 1 })
@@ -179,11 +208,14 @@ function aplicarEstado(estado) {
     var cam = camadas[fcfg.nome];
     if (cam) {
       // divisa sempre vermelha; com fogo, ACENDE (borda branca + mais forte)
-      cam.poligono.setStyle({ color: grav ? "#fff" : COR_DIVISA, fillColor: COR_DIVISA,
+      if (cam.poligono) cam.poligono.setStyle({ color: grav ? "#fff" : COR_DIVISA, fillColor: COR_DIVISA,
                               weight: grav ? 4 : 3, fillOpacity: grav ? 0.55 : 0.22 });
       if (cam.item) {
         cam.item.className = "faz" + (grav ? " " + grav : "");
-        cam.item.querySelector(".tag").textContent = grav ? (grav === "atencao" ? "⚠️ ATENÇÃO" : "🔥 FOGO") : "VIGIANDO";
+        cam.item.querySelector(".tag").textContent =
+          grav === "observacao" ? "👁️ OBSERVANDO"
+          : grav ? (grav === "atencao" ? "⚠️ ATENÇÃO" : "🔥 FOGO")
+          : (fcfg.apenas_observacao ? "OBSERVANDO" : "VIGIANDO");
       }
     }
     (f.focos || []).forEach(function (foco) { pinFoco(fcfg.nome, f.contato, foco); });
@@ -245,7 +277,12 @@ fetch("/config/fazendas.json", { cache: "no-store" })
     // Contagem sai do dado, nunca escrita à mão: cadastrar fazenda nova não pode
     // deixar o cabeçalho mentindo (dizia "5 fazendas" com 6 cadastradas).
     var sub = document.getElementById("marca-sub");
-    if (sub) { sub.textContent = sub.textContent + " · " + fazendasCfg.length + " fazendas"; }
+    if (sub) {
+      var nFaz = fazendasCfg.filter(function (f) { return !f.apenas_observacao; }).length;
+      var nObs = fazendasCfg.length - nFaz;
+      sub.textContent = sub.textContent + " · " + nFaz + " fazendas" +
+        (nObs ? " + " + nObs + " zona" + (nObs > 1 ? "s" : "") + " de observação" : "");
+    }
     desenharFazendas();
     montarLista();
     atualizar();

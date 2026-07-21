@@ -76,6 +76,7 @@ The fix reframes the whole system around one distinction — **"running" is not
 | Missing config | **Complained about, never omitted** | An alert with no phone number prints "no phone registered — fill it in". A silent gap is worse than a visible one. |
 | Dependencies | **Zero** (Python standard library only) | Nothing to install, nothing to break on upgrade, nothing to pay for. Leaflet is vendored locally so the panel works offline. |
 | Urgent alerts | Ship a safety warning | An email that says "run" can send someone alone, on a motorbike, into a wind-driven fire front. Whoever tells you to run owes you the instructions for not dying. |
+| Land that isn't yours | **Watch-only zones** | Set `apenas_observacao` on an area and it appears on the panel and in the daily summary but **never emails**. Alerting on someone else's land — where there is no tractor to send and no fence to defend — produces no action, it only spends the one irreplaceable resource in the system: the owner's attention. |
 
 ## How it works
 

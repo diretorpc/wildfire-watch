@@ -285,7 +285,8 @@ class TestEstado(unittest.TestCase):
         padrao = {"ultimo_csv": "", "ultimo_alerta": {},
                   "resumo_data": "", "alertas_desde_resumo": 0,
                   "ciclos_ok_desde_resumo": 0, "ciclos_falha_desde_resumo": 0,
-                  "falhas_seguidas": 0, "alerta_cego_em": ""}
+                  "falhas_seguidas": 0, "alerta_cego_em": "",
+                  "observacao_desde_resumo": 0}
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             self.assertEqual(vigia.carregar_estado(base / "nada.json"), padrao)
@@ -300,7 +301,8 @@ class TestEstado(unittest.TestCase):
             estado = {"ultimo_csv": "a.csv", "ultimo_alerta": {"A": {"em": "x", "grav": "urgente"}},
                       "resumo_data": "2026-07-20", "alertas_desde_resumo": 2,
                       "ciclos_ok_desde_resumo": 41, "ciclos_falha_desde_resumo": 3,
-                      "falhas_seguidas": 0, "alerta_cego_em": "2026-07-20T10:00:00-03:00"}
+                      "falhas_seguidas": 0, "alerta_cego_em": "2026-07-20T10:00:00-03:00",
+                      "observacao_desde_resumo": 5}
             vigia.salvar_estado(estado, caminho)
             self.assertEqual(vigia.carregar_estado(caminho), estado)
 
@@ -359,20 +361,20 @@ class TestResumoDiario(unittest.TestCase):
         self.assertFalse(vigia.deve_enviar_resumo(self._agora(19), 18, "2026-07-20"))
 
     def test_corpo_sem_alertas_vs_com_alertas(self):
-        _, corpo0 = vigia.montar_resumo_diario([1, 2, 3], 0, self._agora(18), 100, 0)
+        _, corpo0 = vigia.montar_resumo_diario([FARM, FARM, FARM], 0, self._agora(18), 100, 0)
         self.assertIn("Nenhum alerta", corpo0)
         self.assertIn("NÃO chegar", corpo0)
-        assunto, corpo2 = vigia.montar_resumo_diario([1, 2, 3], 2, self._agora(18), 100, 0)
+        assunto, corpo2 = vigia.montar_resumo_diario([FARM, FARM, FARM], 2, self._agora(18), 100, 0)
         self.assertIn("2 alerta(s)", corpo2)
         self.assertIn("resumo do dia", assunto)
 
     def test_dia_limpo_diz_quantas_vezes_olhou(self):
-        _, corpo = vigia.montar_resumo_diario([1], 0, self._agora(18), 143, 0)
+        _, corpo = vigia.montar_resumo_diario([FARM], 0, self._agora(18), 143, 0)
         self.assertIn("143", corpo)
         self.assertNotIn("cego", corpo.lower())
 
     def test_com_falhas_avisa_que_ficou_cego_parte_do_tempo(self):
-        assunto, corpo = vigia.montar_resumo_diario([1], 0, self._agora(18), 90, 53)
+        assunto, corpo = vigia.montar_resumo_diario([FARM], 0, self._agora(18), 90, 53)
         self.assertIn("⚠️", assunto + corpo)
         self.assertIn("90", corpo)
         self.assertIn("53", corpo)
@@ -380,7 +382,7 @@ class TestResumoDiario(unittest.TestCase):
 
     def test_sem_nenhum_ciclo_bom_nunca_diz_que_esta_tudo_certo(self):
         """O pior modo de falha: robô cego o dia inteiro dizendo 'tudo em ordem'."""
-        assunto, corpo = vigia.montar_resumo_diario([1], 0, self._agora(18), 0, 143)
+        assunto, corpo = vigia.montar_resumo_diario([FARM], 0, self._agora(18), 0, 143)
         self.assertNotIn("tudo em ordem", corpo)
         self.assertIn("🚨", assunto + corpo)
         self.assertIn("NÃO consegui dado do INPE", corpo)
@@ -388,9 +390,9 @@ class TestResumoDiario(unittest.TestCase):
 
     def test_assunto_acompanha_a_saude(self):
         """O assunto é o que se lê de relance no celular — não pode disfarçar dia cego."""
-        limpo, _ = vigia.montar_resumo_diario([1], 0, self._agora(18), 143, 0)
-        parcial, _ = vigia.montar_resumo_diario([1], 0, self._agora(18), 90, 53)
-        cego, _ = vigia.montar_resumo_diario([1], 0, self._agora(18), 0, 143)
+        limpo, _ = vigia.montar_resumo_diario([FARM], 0, self._agora(18), 143, 0)
+        parcial, _ = vigia.montar_resumo_diario([FARM], 0, self._agora(18), 90, 53)
+        cego, _ = vigia.montar_resumo_diario([FARM], 0, self._agora(18), 0, 143)
         self.assertTrue(limpo.startswith("🌙"))
         self.assertTrue(parcial.startswith("⚠️"))
         self.assertTrue(cego.startswith("🚨"))
@@ -593,6 +595,45 @@ class TestEmail(unittest.TestCase):
         self.assertIn("193", corpo)  # o telefone de emergência fica sempre
 
 
+class TestZonaDeObservacao(unittest.TestCase):
+    """Área que se OLHA mas não é nossa: aparece na tela, nunca manda e-mail."""
+
+    ZONA = dict(FARM, nome="Cidade (observação)", apenas_observacao=True)
+
+    def test_reconhece_a_zona(self):
+        self.assertTrue(vigia.eh_zona_de_observacao(self.ZONA))
+        self.assertFalse(vigia.eh_zona_de_observacao(FARM))
+
+    def test_fazenda_sem_o_campo_continua_alertando(self):
+        """Ausência do campo NUNCA pode calar uma fazenda de verdade."""
+        self.assertFalse(vigia.eh_zona_de_observacao({"nome": "X"}))
+
+    def test_painel_marca_gravidade_propria(self):
+        """Na tela ela não pode acender vermelho de emergência — não é a sua terra."""
+        atingidas = {self.ZONA["nome"]: [{
+            "foco": foco(-16.50, -47.90), "gravidade": "dentro",
+            "dist_km": 0.0, "rumo": "no centro"}]}
+        with tempfile.TemporaryDirectory() as tmp:
+            caminho = Path(tmp) / "painel.json"
+            vigia.salvar_painel_estado([self.ZONA], atingidas,
+                                       datetime(2026, 7, 21, 15, tzinfo=vigia.FUSO_BRASILIA),
+                                       9, caminho)
+            d = json.loads(caminho.read_text(encoding="utf-8"))
+        self.assertEqual(d["fazendas"][0]["gravidade_atual"], "observacao")
+        self.assertTrue(d["fazendas"][0]["apenas_observacao"])
+
+    def test_resumo_diario_conta_os_avistamentos(self):
+        agora = datetime(2026, 7, 21, 18, tzinfo=vigia.FUSO_BRASILIA)
+        _, corpo = vigia.montar_resumo_diario([FARM], 0, agora, 100, 0, observacao=7)
+        self.assertIn("7", corpo)
+        self.assertIn("observação", corpo.lower())
+
+    def test_resumo_sem_avistamento_nao_polui(self):
+        agora = datetime(2026, 7, 21, 18, tzinfo=vigia.FUSO_BRASILIA)
+        _, corpo = vigia.montar_resumo_diario([FARM], 0, agora, 100, 0, observacao=0)
+        self.assertNotIn("observação", corpo.lower())
+
+
 class TestCiclo(unittest.TestCase):
     CSV = "lat,lon,satelite,data\n -16.50, -47.90,GOES-19,2026-07-19\n"  # foco DENTRO de FARM
     ARQ1 = "focos_10min_20260719_1200.csv"
@@ -679,6 +720,32 @@ class TestCiclo(unittest.TestCase):
         estado = {"ultimo_csv": "", "ultimo_alerta": {}}
         self.assertEqual(self._ciclo(estado, lambda u: [arq], lambda u, n: self.CSV,
                                      lambda *a: None), "ok")
+
+    def test_zona_de_observacao_nunca_manda_email(self):
+        """O teste que mais importa: terra que não é sua não pode gastar sua atenção."""
+        zona = dict(FARM, nome="Cidade (observação)", apenas_observacao=True)
+        estado = {"ultimo_csv": self.ARQ1, "ultimo_alerta": {}}
+        enviados = []
+        vigia.ciclo(self._env(), [zona], estado,
+                    listar=lambda u: [self.ARQ2], baixar=lambda u, n: self.CSV,
+                    enviar=lambda env, a, c: enviados.append(a),
+                    salvar=lambda e, caminho=None: None, salvar_painel=lambda *a, **k: None)
+        self.assertEqual(enviados, [])                       # nenhum e-mail
+        self.assertEqual(estado["ultimo_csv"], self.ARQ2)    # mas o ciclo andou
+        self.assertGreaterEqual(estado.get("observacao_desde_resumo", 0), 1)
+
+    def test_fazenda_de_verdade_alerta_mesmo_com_zona_junto(self):
+        """A zona não pode contaminar as fazendas reais no mesmo ciclo."""
+        zona = dict(FARM, nome="Cidade (observação)", apenas_observacao=True)
+        estado = {"ultimo_csv": self.ARQ1, "ultimo_alerta": {}}
+        enviados = []
+        vigia.ciclo(self._env(), [FARM, zona], estado,
+                    listar=lambda u: [self.ARQ2], baixar=lambda u, n: self.CSV,
+                    enviar=lambda env, a, c: enviados.append((a, c)),
+                    salvar=lambda e, caminho=None: None, salvar_painel=lambda *a, **k: None)
+        self.assertEqual(len(enviados), 1)
+        self.assertIn("FOGO: A", enviados[0][0])              # só a fazenda real
+        self.assertNotIn("observação", enviados[0][1])
 
     def test_sem_arquivo_novo_mas_dado_fresco_e_ok(self):
         """Não ter arquivo novo é normal (o INPE publica a cada 10 min) — não é cegueira."""

@@ -320,6 +320,18 @@ def classificar_foco(foco: dict, fazenda: dict, aneis: list = None):
     return None
 
 
+def eh_zona_de_observacao(fazenda: dict) -> bool:
+    """Área que a gente OLHA mas não é nossa (ex.: a cidade em volta).
+
+    Aparece no painel e no resumo diário, mas NUNCA manda e-mail: alertar sobre
+    terra alheia, onde não há trator para mandar nem cerca para defender, só
+    gasta a única coisa insubstituível do sistema — a atenção do dono.
+    Campo ausente = fazenda normal, porque esquecer o campo não pode calar
+    uma fazenda de verdade.
+    """
+    return bool(fazenda.get("apenas_observacao"))
+
+
 def pior_gravidade(gravidades) -> str:
     """A mais grave de uma lista de gravidades."""
     return max(gravidades, key=lambda g: ORDEM_GRAVIDADE[g])
@@ -389,7 +401,8 @@ def carregar_estado(caminho: Path = ESTADO) -> dict:
     padrao = {"ultimo_csv": "", "ultimo_alerta": {},
               "resumo_data": "", "alertas_desde_resumo": 0,
               "ciclos_ok_desde_resumo": 0, "ciclos_falha_desde_resumo": 0,
-              "falhas_seguidas": 0, "alerta_cego_em": ""}
+              "falhas_seguidas": 0, "alerta_cego_em": "",
+              "observacao_desde_resumo": 0}
     if not caminho.exists():
         return dict(padrao)
     try:
@@ -407,7 +420,8 @@ def carregar_estado(caminho: Path = ESTADO) -> dict:
     if isinstance(lido.get("ultimo_alerta"), dict):
         estado["ultimo_alerta"] = lido["ultimo_alerta"]
     for chave in ("alertas_desde_resumo", "ciclos_ok_desde_resumo",
-                  "ciclos_falha_desde_resumo", "falhas_seguidas"):
+                  "ciclos_falha_desde_resumo", "falhas_seguidas",
+                  "observacao_desde_resumo"):
         if isinstance(lido.get(chave), int):
             estado[chave] = lido[chave]
     return estado
@@ -451,15 +465,21 @@ def salvar_painel_estado(fazendas: list, atingidas: dict, agora: datetime,
     lista = []
     for fazenda in fazendas:
         hits = atingidas.get(fazenda["nome"], [])
+        observacao = eh_zona_de_observacao(fazenda)
+        # Zona de observação não acende vermelho de emergência: não é a sua terra.
+        gravidade = ("observacao" if observacao and hits
+                     else pior_gravidade([h["gravidade"] for h in hits]) if hits else None)
         lista.append({
             "nome": fazenda["nome"],
-            "gravidade_atual": pior_gravidade([h["gravidade"] for h in hits]) if hits else None,
+            "gravidade_atual": gravidade,
+            "apenas_observacao": observacao,
             "contato": fazenda.get("contato", {"nome": "", "telefone": ""}),
             "focos": [{
                 "lat": h["foco"]["lat"], "lon": h["foco"]["lon"],
                 "hora_local": formatar_hora_local(h["foco"]["data"]),
                 "dist_km": round(h["dist_km"], 1), "rumo": h["rumo"],
-                "gravidade": h["gravidade"], "n_focos": h.get("n_focos", 1),
+                "gravidade": "observacao" if observacao else h["gravidade"],
+                "n_focos": h.get("n_focos", 1),
             } for h in hits],
         })
     _gravar_json_atomico({
@@ -712,8 +732,13 @@ def ciclo(env: dict, fazendas: list, estado: dict,
     # A tela reflete os focos AGORA, independente do e-mail/cooldown.
     salvar_painel(fazendas, atingidas, agora, total_focos)
 
+    so_olhar = {f["nome"] for f in fazendas if eh_zona_de_observacao(f)}
     para_alertar = {}
     for nome, hits in atingidas.items():
+        if nome in so_olhar:  # vai pra tela e pro resumo das 18h, nunca pro e-mail
+            estado["observacao_desde_resumo"] = estado.get("observacao_desde_resumo", 0) + len(hits)
+            log(f"Zona de observação '{nome}': {len(hits)} foco(s) — só painel, sem e-mail.")
+            continue
         grav = pior_gravidade([h["gravidade"] for h in hits])
         if deve_alertar(estado["ultimo_alerta"].get(nome), grav, agora):
             para_alertar[nome] = hits
@@ -877,7 +902,7 @@ def deve_enviar_resumo(agora: datetime, hora_alvo: int, data_ultimo: str) -> boo
 
 
 def montar_resumo_diario(fazendas: list, alertas: int, agora: datetime,
-                         ciclos_ok: int, ciclos_falha: int) -> tuple:
+                         ciclos_ok: int, ciclos_falha: int, observacao: int = 0) -> tuple:
     """Monta o e-mail 'estou vivo'. Contagens = desde o resumo anterior.
 
     Regra que dá sentido ao resumo inteiro: ele NUNCA diz "tudo em ordem" sem ter
@@ -908,10 +933,17 @@ def montar_resumo_diario(fazendas: list, alertas: int, agora: datetime,
         titulo = f"✅ vigia-fogo de pé em {dia}, às {hora}."
         saude = f"Olhei o satélite {ciclos_ok} vez(es) desde o resumo anterior, sem falha."
 
+    reais = [f for f in fazendas if not eh_zona_de_observacao(f)]
     if alertas == 0:
-        noticia = f"Nenhum alerta de fogo nas suas {len(fazendas)} fazendas."
+        noticia = f"Nenhum alerta de fogo nas suas {len(reais)} fazendas."
     else:
-        noticia = f"Enviei {alertas} alerta(s) de fogo nas suas {len(fazendas)} fazendas."
+        noticia = f"Enviei {alertas} alerta(s) de fogo nas suas {len(reais)} fazendas."
+    if observacao:
+        # Fora da divisa: informação de contexto, não pedido de ação. Por isso vive
+        # aqui no resumo, e não num e-mail que interrompe o dia.
+        noticia += (f"\n\nNa(s) zona(s) de observação houve {observacao} avistamento(s) "
+                    f"— fogo de terceiros, fora das suas terras (o mesmo foco pode "
+                    f"aparecer em mais de uma checagem). Veja no painel.")
     return assunto, f"{titulo}\n\n{saude}\n\n{noticia}{rodape}"
 
 
@@ -1002,7 +1034,8 @@ def enviar_resumo_se_hora(env: dict, fazendas: list, estado: dict, hora_resumo: 
         return
     assunto, corpo = montar_resumo_diario(
         fazendas, estado.get("alertas_desde_resumo", 0), agora,
-        estado.get("ciclos_ok_desde_resumo", 0), estado.get("ciclos_falha_desde_resumo", 0))
+        estado.get("ciclos_ok_desde_resumo", 0), estado.get("ciclos_falha_desde_resumo", 0),
+        estado.get("observacao_desde_resumo", 0))
     try:
         enviar_email(env, assunto, corpo)
     except (smtplib.SMTPException, OSError, ValueError) as e:
@@ -1014,6 +1047,7 @@ def enviar_resumo_se_hora(env: dict, fazendas: list, estado: dict, hora_resumo: 
     estado["alertas_desde_resumo"] = 0
     estado["ciclos_ok_desde_resumo"] = 0
     estado["ciclos_falha_desde_resumo"] = 0
+    estado["observacao_desde_resumo"] = 0
     salvar_estado(estado)
     log("Resumo diário enviado.")
 

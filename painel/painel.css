@@ -76,3 +76,10 @@ body { background: var(--ground); color: var(--ink); font-family: var(--sans); d
   .pulso { animation: bat 2s infinite; }
   @keyframes bat { 0% { box-shadow: 0 0 0 0 #4f7a3d; } 70% { box-shadow: 0 0 0 7px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
 }
+
+/* Zona de observação: azul discreto — informação de contexto, não chamado de ação.
+   Nunca usa vermelho/laranja, que ficam reservados para a terra que é sua. */
+.faz.observacao .pin { background: #7fb3ff; }
+.faz.observacao .tag { color: #06203f; background: #7fb3ff; border-color: #7fb3ff; }
+.rotulo-obs { color: #cfe3ff; opacity: 0.85; }
+.sw.observacao { background: #7fb3ff; }

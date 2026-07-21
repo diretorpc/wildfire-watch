@@ -73,6 +73,37 @@
       },
       "ponto_de_agua": "reservoir behind the barn",
       "ativa": true
+    },
+    {
+      "nome": "Example Town — watch-only zone",
+      "apenas_observacao": true,
+      "car": "",
+      "car_sem_pontos": "",
+      "municipio": "Example County/GO",
+      "area_ha": 0,
+      "centro": {
+        "lat": -16.3,
+        "lon": -49.15
+      },
+      "bbox_fazenda": {
+        "oeste": -49.15468,
+        "sul": -16.30452,
+        "leste": -49.14532,
+        "norte": -16.29548
+      },
+      "bbox_vigilancia_anel_20km": {
+        "oeste": -49.34187,
+        "sul": -16.4854,
+        "leste": -48.95813,
+        "norte": -16.1146
+      },
+      "poligono_geojson": "",
+      "contato": {
+        "nome": "",
+        "telefone": ""
+      },
+      "ponto_de_agua": "",
+      "ativa": true
     }
   ],
   "anel_urgente_km": 5,
