@@ -144,10 +144,34 @@ def problemas_de_partida(env: dict, fazendas: list) -> list:
             problemas.append("fazenda sem campo 'nome' em config/fazendas.json")
         if not isinstance(fazenda.get("bbox_fazenda"), dict):
             problemas.append(f"'{nome}' sem 'bbox_fazenda' válido no config")
+        else:
+            problemas += retangulo_invertido(fazenda["bbox_fazenda"], f"'{nome}' divisa")
         try:
-            bbox_vigilancia(fazenda)
+            for km, bbox in aneis_vigilancia(fazenda):
+                problemas += retangulo_invertido(bbox, f"'{nome}' anel de {km} km")
         except KeyError:
             problemas.append(f"'{nome}' sem retângulo de vigilância (bbox_vigilancia_anel_*) no config")
+    return problemas
+
+
+def retangulo_invertido(bbox: dict, onde: str) -> list:
+    """Confere se o retângulo tem sul<=norte e oeste<=leste. Devolve os problemas.
+
+    Retângulo invertido (fácil de criar editando o config à mão) faz `dentro_bbox`
+    devolver sempre falso: a fazenda fica MUDA para sempre, o robô sobe sem
+    reclamar e o painel continua escrevendo "VIGIANDO". Silêncio perfeito — que é
+    exatamente o modo de falha que este projeto inteiro existe para não ter.
+    """
+    problemas = []
+    try:
+        if bbox["sul"] > bbox["norte"]:
+            problemas.append(f"{onde}: 'sul' está acima de 'norte' (retângulo invertido, "
+                             f"a fazenda ficaria invisível)")
+        if bbox["oeste"] > bbox["leste"]:
+            problemas.append(f"{onde}: 'oeste' está à direita de 'leste' (retângulo invertido, "
+                             f"a fazenda ficaria invisível)")
+    except (KeyError, TypeError):
+        problemas.append(f"{onde}: retângulo sem oeste/sul/leste/norte numéricos")
     return problemas
 
 
@@ -402,7 +426,8 @@ def carregar_estado(caminho: Path = ESTADO) -> dict:
               "resumo_data": "", "alertas_desde_resumo": 0,
               "ciclos_ok_desde_resumo": 0, "ciclos_falha_desde_resumo": 0,
               "falhas_seguidas": 0, "alerta_cego_em": "",
-              "observacao_desde_resumo": 0}
+              "observacao_desde_resumo": 0, "alertas_perdidos_desde_resumo": 0,
+              "resumo_em": ""}
     if not caminho.exists():
         return dict(padrao)
     try:
@@ -414,14 +439,14 @@ def carregar_estado(caminho: Path = ESTADO) -> dict:
         log("AVISO: estado-vigia.json com formato inesperado — recomeçando do zero.")
         return dict(padrao)
     estado = dict(padrao)
-    for chave in ("ultimo_csv", "resumo_data", "alerta_cego_em"):
+    for chave in ("ultimo_csv", "resumo_data", "alerta_cego_em", "resumo_em"):
         if isinstance(lido.get(chave), str):
             estado[chave] = lido[chave]
     if isinstance(lido.get("ultimo_alerta"), dict):
         estado["ultimo_alerta"] = lido["ultimo_alerta"]
     for chave in ("alertas_desde_resumo", "ciclos_ok_desde_resumo",
                   "ciclos_falha_desde_resumo", "falhas_seguidas",
-                  "observacao_desde_resumo"):
+                  "observacao_desde_resumo", "alertas_perdidos_desde_resumo"):
         if isinstance(lido.get(chave), int):
             estado[chave] = lido[chave]
     return estado
@@ -698,13 +723,18 @@ def ciclo(env: dict, fazendas: list, estado: dict,
         return status  # normal: o INPE publica a cada 10 min, igual ao nosso ciclo
 
     total_focos, baixados, atingidas, ja_vistos = 0, 0, {}, set()
+    # Guarda o ÚLTIMO arquivo que realmente baixou. Marcar como visto um arquivo
+    # que falhou perderia aquela janela de 10 min para sempre — com o fogo que
+    # estivesse nela. O que falhar volta a ser tentado no próximo ciclo.
+    ultimo_baixado = ""
     for nome in novos:
         try:
             texto = baixar(env["INPE_10MIN_URL"], nome)
         except ERROS_REDE as e:
-            log(f"AVISO: falha ao baixar {nome} ({e}) — pulando este arquivo.")
+            log(f"AVISO: falha ao baixar {nome} ({e}) — tento de novo no próximo ciclo.")
             continue
         baixados += 1
+        ultimo_baixado = max(ultimo_baixado, nome)
         focos, puladas = parse_focos(texto)
         aplicar_hora_do_arquivo(focos, nome)
         total_focos += len(focos)
@@ -750,8 +780,14 @@ def ciclo(env: dict, fazendas: list, estado: dict,
         try:
             enviar(env, assunto, corpo)
         except (smtplib.SMTPException, OSError, ValueError) as e:
+            # "Vivo e enxergando" não basta: se o alerta não sai, o robô viu o fogo
+            # e ninguém ficou sabendo. Isso PRECISA aparecer no resumo das 18h —
+            # o log vai para uma janela que não existe.
+            estado["alertas_perdidos_desde_resumo"] = \
+                estado.get("alertas_perdidos_desde_resumo", 0) + 1
             log(f"ERRO: e-mail de alerta NÃO saiu ({e}). Vou tentar de novo no próximo ciclo.")
-            return status  # não avança estado nem cooldown: próximo ciclo re-tenta
+            salvar(estado)  # o contador não pode morrer com o processo
+            return status  # não avança ponteiro nem cooldown: próximo ciclo re-tenta
         log(f"E-mail de alerta enviado: {assunto}")
         estado["alertas_desde_resumo"] = estado.get("alertas_desde_resumo", 0) + 1
         for nome, hits in para_alertar.items():
@@ -760,7 +796,7 @@ def ciclo(env: dict, fazendas: list, estado: dict,
                 "grav": pior_gravidade([h["gravidade"] for h in hits]),
             }
 
-    estado["ultimo_csv"] = novos[-1]
+    estado["ultimo_csv"] = ultimo_baixado
     salvar(estado)
     return status
 
@@ -901,8 +937,30 @@ def deve_enviar_resumo(agora: datetime, hora_alvo: int, data_ultimo: str) -> boo
     return agora.hour >= hora_alvo and data_ultimo != agora.date().isoformat()
 
 
+def ciclos_esperados(resumo_anterior_iso: str, agora: datetime):
+    """Quantos ciclos DEVERIAM ter rodado desde o resumo anterior. None se não dá pra saber.
+
+    Sem isto, o resumo compara ok x falha e nunca percebe o terceiro caso: o robô
+    simplesmente não estava de pé. "Olhei 6 vezes, sem falha" é verdade e mentira ao
+    mesmo tempo quando o computador passou 23 das 24 horas desligado.
+    """
+    if not resumo_anterior_iso:
+        return None
+    try:
+        antes = datetime.fromisoformat(resumo_anterior_iso)
+    except (ValueError, TypeError):
+        return None
+    if antes.tzinfo is None:
+        antes = antes.replace(tzinfo=FUSO_BRASILIA)
+    segundos = (agora - antes).total_seconds()
+    if segundos <= 0:  # relógio andou pra trás: não inventa cobertura
+        return None
+    return max(1, round(segundos / CICLO_SEGUNDOS))
+
+
 def montar_resumo_diario(fazendas: list, alertas: int, agora: datetime,
-                         ciclos_ok: int, ciclos_falha: int, observacao: int = 0) -> tuple:
+                         ciclos_ok: int, ciclos_falha: int, observacao: int = 0,
+                         perdidos: int = 0, resumo_anterior: str = "") -> tuple:
     """Monta o e-mail 'estou vivo'. Contagens = desde o resumo anterior.
 
     Regra que dá sentido ao resumo inteiro: ele NUNCA diz "tudo em ordem" sem ter
@@ -913,9 +971,21 @@ def montar_resumo_diario(fazendas: list, alertas: int, agora: datetime,
     rodape = ("\n\nSe um dia este resumo NÃO chegar, é sinal de que o robô parou "
               "de rodar — vale conferir.")
 
-    # O assunto acompanha a saúde: é ele que o dono lê de relance no celular,
-    # e um "resumo do dia" tranquilo escondendo um dia cego seria o mesmo engano.
-    if ciclos_ok == 0:  # rodou o tempo todo e não enxergou nada: o pior caso
+    # Três coisas precisam estar bem, e o resumo cobra as três: ENXERGAR (dado do
+    # INPE), FALAR (o alerta saiu) e ESTAR DE PÉ (o robô rodou o dia todo). Se
+    # qualquer uma falhar, o assunto muda — é ele que se lê de relance no celular.
+    esperados = ciclos_esperados(resumo_anterior, agora)
+    rodou = ciclos_ok + ciclos_falha
+    # Folga de 20%: reinício, ciclo demorado e arredondamento não podem virar alarme.
+    desligado = esperados is not None and rodou < esperados * 0.8
+
+    if perdidos:  # viu o fogo e o e-mail não saiu — o mais grave de todos
+        assunto = f"🚨 vigia-fogo: {perdidos} ALERTA(S) NÃO SAÍRAM ({dia})"
+        titulo = f"🚨 vigia-fogo viu fogo e NÃO CONSEGUIU AVISAR ({dia}, {hora})."
+        saude = (f"{perdidos} alerta(s) de fogo não saíram — o envio de e-mail falhou "
+                 f"na hora.\nSe você não recebeu alerta hoje, NÃO quer dizer que não "
+                 f"houve fogo.\nConfira o painel agora e a senha de aplicativo no .env.")
+    elif ciclos_ok == 0:  # rodou o tempo todo e não enxergou nada
         assunto = f"🚨 vigia-fogo: NÃO CONSEGUI VIGIAR ({dia})"
         titulo = f"🚨 vigia-fogo NÃO CONSEGUIU VIGIAR ({dia}, {hora})."
         saude = (f"Desde o resumo anterior eu NÃO consegui dado do INPE nenhuma vez "
@@ -928,6 +998,14 @@ def montar_resumo_diario(fazendas: list, alertas: int, agora: datetime,
         titulo = f"⚠️ vigia-fogo de pé em {dia}, às {hora} — mas fiquei cego parte do tempo."
         saude = (f"Olhei o satélite {ciclos_ok} vez(es) e falhei {ciclos_falha} vez(es) "
                  f"(sem dado do INPE). Nessas {ciclos_falha} falhas eu NÃO estava vigiando.")
+    elif desligado:  # não falhou: simplesmente não estava ligado
+        pct = round(100 * rodou / esperados)
+        horas = round((esperados - rodou) * CICLO_SEGUNDOS / 3600)
+        assunto = f"⚠️ vigia-fogo: resumo do dia ({dia}) — fiquei desligado a maior parte"
+        titulo = f"⚠️ vigia-fogo em {dia}, às {hora} — mas passei a maior parte DESLIGADO."
+        saude = (f"Olhei o satélite {ciclos_ok} vez(es), mas deveria ter olhado ~{esperados}: "
+                 f"estive de pé em ~{pct}% do tempo.\nNas outras ~{horas} hora(s) o "
+                 f"computador estava desligado e NINGUÉM estava vigiando — nem eu.")
     else:
         assunto = f"🌙 vigia-fogo: resumo do dia ({dia})"
         titulo = f"✅ vigia-fogo de pé em {dia}, às {hora}."
@@ -1035,7 +1113,8 @@ def enviar_resumo_se_hora(env: dict, fazendas: list, estado: dict, hora_resumo: 
     assunto, corpo = montar_resumo_diario(
         fazendas, estado.get("alertas_desde_resumo", 0), agora,
         estado.get("ciclos_ok_desde_resumo", 0), estado.get("ciclos_falha_desde_resumo", 0),
-        estado.get("observacao_desde_resumo", 0))
+        estado.get("observacao_desde_resumo", 0),
+        estado.get("alertas_perdidos_desde_resumo", 0), estado.get("resumo_em", ""))
     try:
         enviar_email(env, assunto, corpo)
     except (smtplib.SMTPException, OSError, ValueError) as e:
@@ -1048,6 +1127,8 @@ def enviar_resumo_se_hora(env: dict, fazendas: list, estado: dict, hora_resumo: 
     estado["ciclos_ok_desde_resumo"] = 0
     estado["ciclos_falha_desde_resumo"] = 0
     estado["observacao_desde_resumo"] = 0
+    estado["alertas_perdidos_desde_resumo"] = 0
+    estado["resumo_em"] = agora.isoformat()
     salvar_estado(estado)
     log("Resumo diário enviado.")
 

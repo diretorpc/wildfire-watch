@@ -45,6 +45,10 @@ KM_POR_GRAU_LAT = 110.574
 LONGE_DEMAIS_KM = 150.0
 # Divisa de fazenda cabe em poucos KB. Arquivo maior que isto é outra coisa.
 LIMITE_KML_MB = 50
+# Quanto o retângulo pode ser maior que a área desenhada. Nas 6 fazendas atuais
+# fica entre 1,5x e 2,8x (consequência normal de usar retângulo). Muito acima
+# disso = talhões separados no mesmo arquivo, e o retângulo engole terra alheia.
+INCHACO_MAXIMO_BBOX = 4.0
 
 
 def buscar_poligono(car_sem_pontos: str, uf: str) -> dict:
@@ -248,6 +252,17 @@ def main():
                 f"rode de novo com --fazenda-longe")
         if not 1 <= area_ha <= 100_000:
             problemas.append(f"área calculada de {area_ha:.1f} ha não parece divisa de fazenda")
+        # Talhões separados no mesmo arquivo: o retângulo abraça todos e engole a
+        # terra alheia no meio, que passa a valer como "DENTRO da divisa" — a
+        # categoria que manda correr. Já vi inflar 95x sem nenhum aviso.
+        area_retangulo = ((n - s) * KM_POR_GRAU_LAT) * ((e - w) * 111.320 *
+                          math.cos(math.radians(clat))) * 100  # km² -> ha
+        if area_ha > 0 and area_retangulo / area_ha > INCHACO_MAXIMO_BBOX:
+            problemas.append(
+                f"o retângulo da divisa ({area_retangulo:.0f} ha) ficou "
+                f"{area_retangulo / area_ha:.0f}x maior que a área desenhada ({area_ha:.0f} ha). "
+                f"O arquivo provavelmente tem talhões separados — cadastre um por vez, "
+                f"senão o robô vai tratar a terra do vizinho no meio como sua")
         if args.area_doc and abs(area_ha - args.area_doc) / args.area_doc * 100 > TOLERANCIA_AREA_PCT:
             problemas.append(f"área do KMZ {area_ha:.2f} ha difere mais de "
                              f"{TOLERANCIA_AREA_PCT}% do informado {args.area_doc:.2f} ha")
@@ -354,6 +369,15 @@ def main():
         print(f"  Origem: KMZ (sem CAR). Confira no mapa do painel se a divisa bateu.")
         print(f"  Anéis: {int(km_urgente)} km (urgente) e {int(km_atencao)} km (atenção).")
         print(f"  FALTA preencher contato e ponto de água desta fazenda em config/fazendas.json")
+    # O vigia lê o config UMA vez, na partida. Sem reiniciar, esta fazenda aparece
+    # no painel como se estivesse vigiada e NÃO está — a pior mentira possível.
+    print()
+    print("  " + "!" * 66)
+    print("  !!  REINICIE O VIGIA AGORA, senão esta fazenda NÃO está sendo vigiada.")
+    print("  !!  Ele só lê este arquivo quando sobe. Até reiniciar, o painel mostra")
+    print("  !!  a fazenda mas o robô não olha para ela.")
+    print("  !!  Windows: schtasks /end /tn VigiaFogo  &&  schtasks /run /tn VigiaFogo")
+    print("  " + "!" * 66)
     return 0
 
 

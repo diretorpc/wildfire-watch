@@ -83,3 +83,9 @@ body { background: var(--ground); color: var(--ink); font-family: var(--sans); d
 .faz.observacao .tag { color: #06203f; background: #7fb3ff; border-color: #7fb3ff; }
 .rotulo-obs { color: #cfe3ff; opacity: 0.85; }
 .sw.observacao { background: #7fb3ff; }
+
+/* Fazenda no config que o robô ainda não conhece (cadastrada depois que ele subiu).
+   Vermelho de ALERTA porque a terra está desprotegida achando que está protegida. */
+.faz.nao-vigiada .pin { background: #b62204; }
+.faz.nao-vigiada .tag { color: #fff; background: #b62204; border-color: #ff4d22; }
+.faz.nao-vigiada { outline: 1px solid #b62204; }

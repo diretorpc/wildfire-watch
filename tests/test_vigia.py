@@ -279,6 +279,46 @@ class TestEnv(unittest.TestCase):
         env["SMTP_PORT"] = "587"
         self.assertEqual(vigia.problemas_de_partida(env, [FARM]), [])
 
+    def test_divisa_invertida_rebaixa_a_gravidade_e_e_barrada(self):
+        """Divisa invertida: fogo DENTRO da fazenda vira só 'urgente' (≤5 km).
+
+        Não é silêncio total — o anel ainda pega —, mas o alerta perde a
+        categoria mais grave e diz 'a ~X km' de um fogo que está na terra.
+        """
+        env = {c: "ok" for c in vigia.CHAVES_ENV_OBRIGATORIAS}
+        env["SMTP_PORT"] = "587"
+        torta = dict(FARM, bbox_fazenda={"oeste": -47.92, "sul": -16.48,
+                                         "leste": -47.88, "norte": -16.52})
+        self.assertEqual(vigia.classificar_foco(foco(-16.50, -47.90), torta), "urgente")
+        self.assertTrue(any("invertido" in p for p in vigia.problemas_de_partida(env, [torta])))
+
+    def test_tudo_invertido_deixa_a_fazenda_MUDA_e_e_barrado(self):
+        """Divisa E anéis invertidos: a fazenda some de verdade. Silêncio perfeito."""
+        env = {c: "ok" for c in vigia.CHAVES_ENV_OBRIGATORIAS}
+        env["SMTP_PORT"] = "587"
+        vira = lambda b: {"oeste": b["leste"], "leste": b["oeste"],
+                          "sul": b["norte"], "norte": b["sul"]}
+        muda = dict(FARM,
+                    bbox_fazenda=vira(FARM["bbox_fazenda"]),
+                    bbox_vigilancia_anel_5km=vira(FARM["bbox_vigilancia_anel_5km"]),
+                    bbox_vigilancia_anel_10km=vira(FARM["bbox_vigilancia_anel_10km"]))
+        self.assertIsNone(vigia.classificar_foco(foco(-16.50, -47.90), muda))  # invisível
+        self.assertEqual(vigia.verificar_focos([foco(-16.50, -47.90)], [muda]), {})
+        self.assertTrue(any("invertido" in p for p in vigia.problemas_de_partida(env, [muda])))
+
+    def test_anel_invertido_tambem_e_barrado(self):
+        env = {c: "ok" for c in vigia.CHAVES_ENV_OBRIGATORIAS}
+        env["SMTP_PORT"] = "587"
+        torta = dict(FARM, bbox_vigilancia_anel_10km={"oeste": -47.79, "sul": -16.61,
+                                                      "leste": -48.01, "norte": -16.39})
+        self.assertTrue(any("invertido" in p for p in vigia.problemas_de_partida(env, [torta])))
+
+    def test_retangulo_bom_nao_reclama(self):
+        self.assertEqual(vigia.retangulo_invertido(BBOX, "x"), [])
+
+    def test_retangulo_sem_campos_reclama_sem_estourar(self):
+        self.assertTrue(vigia.retangulo_invertido({"oeste": -48}, "x"))
+
 
 class TestEstado(unittest.TestCase):
     def test_carregar_estado_tolerante(self):
@@ -286,7 +326,8 @@ class TestEstado(unittest.TestCase):
                   "resumo_data": "", "alertas_desde_resumo": 0,
                   "ciclos_ok_desde_resumo": 0, "ciclos_falha_desde_resumo": 0,
                   "falhas_seguidas": 0, "alerta_cego_em": "",
-                  "observacao_desde_resumo": 0}
+                  "observacao_desde_resumo": 0, "alertas_perdidos_desde_resumo": 0,
+                  "resumo_em": ""}
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             self.assertEqual(vigia.carregar_estado(base / "nada.json"), padrao)
@@ -302,7 +343,8 @@ class TestEstado(unittest.TestCase):
                       "resumo_data": "2026-07-20", "alertas_desde_resumo": 2,
                       "ciclos_ok_desde_resumo": 41, "ciclos_falha_desde_resumo": 3,
                       "falhas_seguidas": 0, "alerta_cego_em": "2026-07-20T10:00:00-03:00",
-                      "observacao_desde_resumo": 5}
+                      "observacao_desde_resumo": 5, "alertas_perdidos_desde_resumo": 1,
+                      "resumo_em": "2026-07-20T18:00:00-03:00"}
             vigia.salvar_estado(estado, caminho)
             self.assertEqual(vigia.carregar_estado(caminho), estado)
 
@@ -595,6 +637,68 @@ class TestEmail(unittest.TestCase):
         self.assertIn("193", corpo)  # o telefone de emergência fica sempre
 
 
+class TestAlertaQueNaoSaiu(unittest.TestCase):
+    """O gêmeo do 'vivo mas cego': vivo, ENXERGANDO, e mudo.
+
+    Se o e-mail de alerta não sai, o robô viu o fogo e ninguém ficou sabendo.
+    Isso não pode passar por dia normal no resumo das 18h.
+    """
+
+    def _agora(self):
+        return datetime(2026, 7, 21, 18, tzinfo=vigia.FUSO_BRASILIA)
+
+    def test_resumo_grita_quando_alerta_foi_perdido(self):
+        assunto, corpo = vigia.montar_resumo_diario(
+            [FARM], 0, self._agora(), 100, 0, perdidos=3)
+        self.assertIn("🚨", assunto + corpo)
+        self.assertIn("3", corpo)
+        self.assertNotIn("tudo em ordem", corpo)
+
+    def test_resumo_perdido_vence_ate_o_dia_limpo(self):
+        """Ciclos todos ok não podem maquiar alerta que não saiu."""
+        assunto, _ = vigia.montar_resumo_diario([FARM], 0, self._agora(), 144, 0, perdidos=1)
+        self.assertFalse(assunto.startswith("🌙"))
+
+    def test_sem_perda_o_resumo_nao_muda(self):
+        assunto, corpo = vigia.montar_resumo_diario([FARM], 0, self._agora(), 144, 0, perdidos=0)
+        self.assertTrue(assunto.startswith("🌙"))
+        self.assertNotIn("não saiu", corpo)
+
+
+class TestCoberturaDoDia(unittest.TestCase):
+    """PC desligado parte do dia não pode virar 'olhei 6 vezes, sem falha'."""
+
+    AGORA = datetime(2026, 7, 21, 18, tzinfo=vigia.FUSO_BRASILIA)
+
+    def test_conta_ciclos_esperados_pelo_relogio(self):
+        ontem = self.AGORA - timedelta(hours=24)
+        self.assertEqual(vigia.ciclos_esperados(ontem.isoformat(), self.AGORA), 144)
+
+    def test_sem_resumo_anterior_nao_da_palpite(self):
+        self.assertIsNone(vigia.ciclos_esperados("", self.AGORA))
+
+    def test_horario_corrompido_nao_estoura(self):
+        self.assertIsNone(vigia.ciclos_esperados("???", self.AGORA))
+
+    def test_relogio_pra_tras_nao_inventa_cobertura(self):
+        futuro = (self.AGORA + timedelta(hours=2)).isoformat()
+        self.assertIsNone(vigia.ciclos_esperados(futuro, self.AGORA))
+
+    def test_resumo_avisa_que_ficou_desligado_a_maior_parte(self):
+        ontem = (self.AGORA - timedelta(hours=24)).isoformat()
+        assunto, corpo = vigia.montar_resumo_diario([FARM], 0, self.AGORA, 6, 0,
+                                                    resumo_anterior=ontem)
+        self.assertIn("⚠️", assunto + corpo)
+        self.assertIn("desligado", corpo.lower())
+
+    def test_dia_inteiro_de_pe_nao_reclama(self):
+        ontem = (self.AGORA - timedelta(hours=24)).isoformat()
+        assunto, corpo = vigia.montar_resumo_diario([FARM], 0, self.AGORA, 142, 0,
+                                                    resumo_anterior=ontem)
+        self.assertTrue(assunto.startswith("🌙"))
+        self.assertNotIn("desligado", corpo.lower())
+
+
 class TestZonaDeObservacao(unittest.TestCase):
     """Área que se OLHA mas não é nossa: aparece na tela, nunca manda e-mail."""
 
@@ -681,15 +785,42 @@ class TestCiclo(unittest.TestCase):
         self.assertEqual(enviados, [])  # mesma gravidade dentro do cooldown
         self.assertEqual(estado["ultimo_csv"], self.ARQ2)
 
-    def test_download_quebrado_pula_arquivo(self):
+    def test_arquivo_que_nao_baixou_NAO_e_dado_por_visto(self):
+        """Antes o ponteiro pulava pro arquivo quebrado e aquela janela de 10 min
+        era perdida pra sempre — com o fogo que estivesse nela."""
+        quebrado = "focos_10min_20260719_1220.csv"
         estado = {"ultimo_csv": self.ARQ1, "ultimo_alerta": {}}
         def baixar(u, n):
             if n == self.ARQ2:
                 return self.CSV
             raise OSError("404")
-        self._ciclo(estado, lambda u: [self.ARQ2, "focos_10min_20260719_1220.csv"],
-                    baixar, lambda env, a, c: None)
-        self.assertEqual(estado["ultimo_csv"], "focos_10min_20260719_1220.csv")
+        self._ciclo(estado, lambda u: [self.ARQ2, quebrado], baixar, lambda env, a, c: None)
+        self.assertEqual(estado["ultimo_csv"], self.ARQ2)   # para no último que BAIXOU
+        self.assertNotEqual(estado["ultimo_csv"], quebrado)
+
+    def test_arquivo_quebrado_e_relido_no_ciclo_seguinte(self):
+        """Consequência do conserto: o que falhou volta a ser tentado."""
+        quebrado = "focos_10min_20260719_1220.csv"
+        estado = {"ultimo_csv": self.ARQ1, "ultimo_alerta": {}}
+        falhas = {"n": 0}
+        def baixar(u, n):
+            if n == quebrado and falhas["n"] == 0:
+                falhas["n"] += 1
+                raise OSError("503 temporário")
+            return self.CSV
+        listar = lambda u: [self.ARQ2, quebrado]
+        self._ciclo(estado, listar, baixar, lambda env, a, c: None)
+        self.assertEqual(estado["ultimo_csv"], self.ARQ2)
+        enviados = []
+        self._ciclo(estado, listar, baixar, lambda env, a, c: enviados.append(a))
+        self.assertEqual(estado["ultimo_csv"], quebrado)     # agora sim baixou
+
+    def test_alerta_que_nao_saiu_e_contado(self):
+        estado = {"ultimo_csv": self.ARQ1, "ultimo_alerta": {}}
+        def quebra(env, a, c):
+            raise smtplib.SMTPAuthenticationError(535, b"x")
+        self._ciclo(estado, lambda u: [self.ARQ2], lambda u, n: self.CSV, quebra)
+        self.assertEqual(estado.get("alertas_perdidos_desde_resumo"), 1)
 
     # --- A1: o ciclo precisa CONTAR se conseguiu olhar, não só logar num vazio ---
 

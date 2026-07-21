@@ -202,20 +202,30 @@ function aplicarEstado(estado) {
   (estado.fazendas || []).forEach(function (f) { porNome[f.nome] = f; });
   focosLayer.clearLayers();
 
+  // Fazenda que está no config mas o robô não conhece = ele foi cadastrado DEPOIS
+  // que o robô subiu (o config só é lido na partida). Mostrar isso como "VIGIANDO"
+  // seria a pior mentira da tela: fazenda desprotegida com cara de protegida.
+  var roboJaChecou = (estado.fazendas || []).length > 0;
   fazendasCfg.forEach(function (fcfg) {
+    var conhecida = Object.prototype.hasOwnProperty.call(porNome, fcfg.nome);
     var f = porNome[fcfg.nome] || { gravidade_atual: null, focos: [] };
     var grav = f.gravidade_atual;
+    var naoVigiada = roboJaChecou && !conhecida;
     var cam = camadas[fcfg.nome];
     if (cam) {
       // divisa sempre vermelha; com fogo, ACENDE (borda branca + mais forte)
       if (cam.poligono) cam.poligono.setStyle({ color: grav ? "#fff" : COR_DIVISA, fillColor: COR_DIVISA,
                               weight: grav ? 4 : 3, fillOpacity: grav ? 0.55 : 0.22 });
       if (cam.item) {
-        cam.item.className = "faz" + (grav ? " " + grav : "");
+        cam.item.className = "faz" + (naoVigiada ? " nao-vigiada" : (grav ? " " + grav : ""));
         cam.item.querySelector(".tag").textContent =
-          grav === "observacao" ? "👁️ OBSERVANDO"
+          naoVigiada ? "⛔ NÃO VIGIADA"
+          : grav === "observacao" ? "👁️ OBSERVANDO"
           : grav ? (grav === "atencao" ? "⚠️ ATENÇÃO" : "🔥 FOGO")
           : (fcfg.apenas_observacao ? "OBSERVANDO" : "VIGIANDO");
+        cam.item.title = naoVigiada
+          ? "Cadastrada depois que o robô subiu. REINICIE o vigia para ele passar a vigiar."
+          : "";
       }
     }
     (f.focos || []).forEach(function (foco) { pinFoco(fcfg.nome, f.contato, foco); });
