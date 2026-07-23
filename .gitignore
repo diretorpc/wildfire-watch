@@ -10,6 +10,10 @@ dados/estado-vigia.json
 dados/painel-estado.json
 # Trava de instância única (runtime) — não sobe
 dados/vigia.lock
+# Diário de bordo do robô — ESTE REPOSITÓRIO É PÚBLICO e o log contém nomes de
+# fazenda e o e-mail de destino do alerta. NUNCA pode subir.
+dados/vigia.log
+dados/vigia.log.*
 
 # Python
 __pycache__/
